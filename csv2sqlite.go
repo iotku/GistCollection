@@ -19,6 +19,7 @@ func main() {
 	commitRatePtr := flag.Int64("crate", 10000, "How many transactions between SQL commits.\nNote: Higher values may be faster but use more RAM")
 	dbPath := flag.String("out", "./sqlite.db", "sqliteDB output path.")
 	table := flag.String("table", "data", "table name for CSV data")
+	delimiterPrt := flag.String("delimiter", ",", "Custom delimiter")
 	flag.Parse()
 	filePath := flag.Arg(0)
 	if len(filePath) == 0 {
@@ -35,10 +36,10 @@ func main() {
 	// get categories
 	var cols []string
 	if *customColsPtr != "" {
-		cols = strings.Split(*customColsPtr, ",")
+		cols = strings.Split(*customColsPtr, *delimiterPrt)
 	} else { // read cols from first line
 		scanner.Scan()
-		cols = strings.Split(scanner.Text(), ",")
+		cols = strings.Split(scanner.Text(), *delimiterPrt)
 	}
 
 	if len(cols) <= 1 {
@@ -49,7 +50,7 @@ func main() {
 	sqlTx, database := initDB(*dbPath, *table, cols...)
 	defer database.Close()
 	for scanner.Scan() {
-		data := strings.Split(scanner.Text(), ",")
+		data := strings.Split(scanner.Text(), *delimiterPrt)
 		stmt, err := sqlTx.Prepare(genInsertStr(*table, cols...))
 		ckErrFatal(err, "failed to insert prepared statement")
 		dataArgs := make([]interface{}, len(data))
@@ -60,7 +61,7 @@ func main() {
 			dataArgs[i] = ""
 		}
 		_, err = stmt.Exec(dataArgs...)
-		ckErrFatal(err, "failed to execute prepared statment")
+		ckErrFatal(err, "failed to execute prepared statement")
 		count++
 		fmt.Printf("\r%d", count)
 
@@ -70,7 +71,7 @@ func main() {
 			ckErrFatal(sqlTx.Commit(), "failed to commit sql (not final commit)")
 			ckErrFatal(database.Close(), "failed to close database (mid-commit)")
 			database, err = sql.Open("sqlite3", *dbPath)
-			ckErrFatal(err, "failed to reopen DB after midprocess commit")
+			ckErrFatal(err, "failed to reopen DB after mid-process commit")
 			_, err = database.Exec(`PRAGMA shrink_memory;`)
 			ckErrFatal(err, "failed to shrink memory")
 			sqlTx, err = database.Begin()
@@ -85,16 +86,16 @@ func genInsertStr(table string, columns ...string) string {
 	if len(columns) < 1 {
 		log.Fatalln("genInsertStr() requires at least one column")
 	}
-	outstring := "INSERT into \"" + table + "\" ("
+	outStr := "INSERT into \"" + table + "\" ("
 	for _, value := range columns {
-		outstring += "\"" + value + "\", "
+		outStr += "\"" + value + "\", "
 	}
-	outstring = outstring[0:len(outstring)-2] + ") VALUES ("
+	outStr = outStr[0:len(outStr)-2] + ") VALUES ("
 	for i := 0; i < len(columns); i++ {
-		outstring += "?, "
+		outStr += "?, "
 	}
-	//fmt.Println(outstring[0:len(outstring)-2] + ");")
-	return outstring[0:len(outstring)-2] + ");"
+	//fmt.Println(outStr[0:len(outStr)-2] + ");")
+	return outStr[0:len(outStr)-2] + ");"
 }
 
 func initDB(path, table string, columns ...string) (*sql.Tx, *sql.DB) {
