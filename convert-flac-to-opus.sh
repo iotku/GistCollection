@@ -6,7 +6,7 @@ set -eo pipefail
 # Requirements:
 #    - Bash (obviously)
 #    - GNU coreutils, parallel, findutils
-#    - opusenc 
+#    - opusenc
 
 # Options
 # Paths
@@ -14,6 +14,7 @@ SOURCE_DIR="${HOME}/Music/"
 OUTPUT_DIR="${HOME}/Music-Converted/"
 LOG_FILE="/tmp/log-convfto.txt"
 ERROR_LOG_FILE="/tmp/err-convfto.txt"
+SCRIPT_PATH=$(realpath "${BASH_SOURCE[0]}")
 # Opus VBR Bitrate
 BITRATE=192
 # How many threads to use for opus encoding
@@ -21,7 +22,20 @@ THREADS=$(nproc) # All CPU Threads, or change to a number (i.e 6)
 #THREADS=4 # or n threads
 
 # Don't change these!
-TRIM_PREFIX_AMT="${#SOURCE_DIR}" 
+TRIM_PREFIX_AMT="${#SOURCE_DIR}"
+
+# Verify commands
+if ! command -v parallel >/dev/null 2>&1; then
+    echo "Error: 'parallel' command not found." >&2
+    exit 1
+fi
+
+# Check that it's GNU Parallel
+if ! parallel --version 2>&1 | grep -q "GNU parallel"; then
+    echo "Error: 'parallel' found but it is not GNU Parallel." >&2
+    exit 1
+fi
+
 function main {
      # Read Command Line Arguments
     for i in "$@"; do
@@ -41,17 +55,17 @@ function main {
 function syncDirs {
     echo "Syncing directories"
     # Get Directories to copy to new location (incl. non-flac dirs to be copied into later)
-    find "$SOURCE_DIR" -mindepth 1 -type d | 
-        while read line; do
+    find "$SOURCE_DIR" -mindepth 1 -type d -print0 |
+        while IFS= read -r -d '' line; do
             mkdir -vp "$OUTPUT_DIR${line:$TRIM_PREFIX_AMT}" ||
                 logError "MKDIRFAIL" "$OUTPUT_DIR${line:$TRIM_PREFIX_AMT}"
         done
 }
 
-# Find all .flac files and use opusenc (via _encode) in parallel 
+# Find all .flac files and use opusenc (via _encode) in parallel
 function transcodeFlac {
     echo "Transcoding flacs from $INPUT_DIR to $OUTPUT_DIR"
-    find "$SOURCE_DIR" -type f -name "*.flac" | parallel --progress -j12 "${BASH_SOURCE[0]}" encode '{}'
+    find "$SOURCE_DIR" -type f -name "*.flac" | parallel --progress -j "$THREADS" bash "$SCRIPT_PATH" encode '{}'
 }
 
 function _encode {
@@ -63,15 +77,15 @@ function _encode {
         exit
     fi
     echo "Encoding -> $OUTPUT_PATH"
-    opusenc --music --bitrate $BITRATE --comp 10 "$INPUT_DIR" "${OUTPUT_PATH}" 2>&1 | grep Runtime -A1 | xargs && 
-        logSuccss "$INPUT_DIR" || 
+    opusenc --music --bitrate $BITRATE --comp 10 "$INPUT_DIR" "${OUTPUT_PATH}" 2>&1 | grep Runtime -A1 | xargs &&
+        logSuccess "$INPUT_DIR" ||
         logError "EF" "$INPUT_DIR"
 }
 
 function copyNonFlacs {
     echo "Copying non-flacs to $OUTPUT_DIR"
-    find "$SOURCE_DIR" -type f -not -name "*.flac" |
-        while read line; do 
+    find "$SOURCE_DIR" -type f -not -name "*.flac" -print0 |
+        while IFS= read -r -d '' line; do
             if test -f "$OUTPUT_DIR${line:$TRIM_PREFIX_AMT}"; then
                 # don't copy, file already exists.
                 echo "Not copying, file exists: $line"
@@ -89,7 +103,7 @@ function renameDirectories {
         done
 }
 
-function logSuccss {
+function logSuccess {
     echo -e "\033[0;32mEncode Success\033[0m"
     echo -e "ES: $1" >> "$LOG_FILE"
 }
